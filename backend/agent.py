@@ -6,7 +6,7 @@ import re
 import subprocess
 import webbrowser
 
-import ollama
+from google import genai
 
 
 class RAVIELAgent:
@@ -407,41 +407,25 @@ IMPORTANT:
 """
 
         try:
-            response = ollama.chat(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt,
-                    },
-                    {
-                        "role": "user",
-                        "content": query,
-                    },
-                ],
-                options={
-                    # Low temperature makes responses more direct
-                    # and reduces unnecessary generation.
-                    "temperature": 0.2,
+            api_key = os.environ.get("GEMINI_API_KEY")
 
-                    # Smaller context keeps inference lightweight.
-                    # Increase later if your workload needs more context.
-                    "num_ctx": 2048,
+            if not api_key:
+                print("RAVIEL Gemini error: GEMINI_API_KEY is not configured.")
+                return "The AI service is not configured right now."
 
-                    # Dynamically selected according to the request.
-                    "num_predict": max_tokens,
-                },
+            client = genai.Client(api_key=api_key)
 
-                # Keep Qwen loaded in RAM.
-                keep_alive=self.keep_alive,
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=query,
+                config=genai.types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.2,
+                    max_output_tokens=max_tokens,
+                ),
             )
 
-            answer = (
-                response
-                .get("message", {})
-                .get("content", "")
-                .strip()
-            )
+            answer = (response.text or "").strip()
 
             if not answer:
                 return "I don't have an answer for that."
@@ -449,13 +433,8 @@ IMPORTANT:
             return answer
 
         except Exception as exc:
-            print(
-                f"RAVIEL Ollama error: {exc}"
-            )
-
-            return (
-                "I couldn't process that request right now."
-            )
+            print(f"RAVIEL Gemini error: {exc}")
+            return "I couldn't process that request right now."
 
     # ============================================================
     # DOCUMENT ROUTING
