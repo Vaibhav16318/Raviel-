@@ -1,47 +1,33 @@
-from sentence_transformers import SentenceTransformer
+import os
+import requests
 
 from backend.chunking.models import Chunk
 
 
 class Embedder:
     """
-    Dense embedding layer for RAVIEL.
+    Remote multilingual embedding layer for RAVIEL.
 
-    Optimized for:
-    - fast query embeddings
-    - batched document embeddings
-    - normalized vectors
-    - inference-only execution
+    Uses Jina AI instead of loading SentenceTransformer/PyTorch
+    inside the Vercel serverless function.
     """
 
     def __init__(
         self,
-        model_name: str = (
-            "sentence-transformers/"
-            "paraphrase-multilingual-MiniLM-L12-v2"
-        ),
+        model_name: str = "jina-embeddings-v3",
     ):
         self.model_name = model_name
+        self.api_key = os.getenv("JINA_API_KEY")
 
-        self.model = SentenceTransformer(
-            model_name,
-        )
+        if not self.api_key:
+            raise RuntimeError("JINA_API_KEY environment variable is not set")
 
-    # ============================================================
-    # TEXT EMBEDDING
-    # ============================================================
+        self.url = "https://api.jina.ai/v1/embeddings"
 
     def embed_texts(
         self,
         texts: list[str],
     ) -> list[list[float]]:
-        """
-        Embed multiple texts efficiently.
-
-        The model is used only for inference, so gradients are
-        disabled internally by SentenceTransformers.
-        """
-
         if not texts:
             return []
 
@@ -50,35 +36,36 @@ class Embedder:
             for text in texts
         ]
 
-        embeddings = self.model.encode(
-            cleaned,
-            batch_size=min(
-                32,
-                max(1, len(cleaned)),
-            ),
-            normalize_embeddings=True,
-            convert_to_numpy=True,
-            show_progress_bar=False,
+        response = requests.post(
+            self.url,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            },
+            json={
+                "model": self.model_name,
+                "task": "text-matching",
+                "normalized": True,
+                "input": cleaned,
+            },
+            timeout=60,
         )
 
-        return embeddings.tolist()
+        response.raise_for_status()
 
-    # ============================================================
-    # CHUNK EMBEDDING
-    # ============================================================
+        data = response.json()["data"]
+
+        data.sort(key=lambda item: item["index"])
+
+        return [
+            item["embedding"]
+            for item in data
+        ]
 
     def embed_chunks(
         self,
         chunks: list[Chunk],
     ) -> list[list[float]]:
-        """
-        Embed chunk text while preserving chunk ordering.
-
-        This is used during indexing, where batching provides
-        significantly better throughput than embedding chunks
-        one at a time.
-        """
-
         if not chunks:
             return []
 
