@@ -1,0 +1,46 @@
+* {
+    box-sizing: border-box;
+  }
+  
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  
+  body {
+    overflow: hidden;
+    background: #000304;
+  }
+  
+  .raviel-app {
+    position: fixed;
+    inset: 0;
+  
+    width: 100vw;
+    height: 100vh;
+  
+    overflow: hidden;
+  
+    background: #000304;
+  }
+  
+  .raviel-canvas {
+    position: absolute;
+  
+    inset: 0;
+  
+    width: 100%;
+    height: 100%;
+  
+    display: block;
+  
+    cursor: pointer;
+  
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
