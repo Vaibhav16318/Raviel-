@@ -5,3 +5,4 @@ sarvamai
 sentence-transformers
 ollama
 pyarrow
+torch==2.3.1+cpu
