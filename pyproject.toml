@@ -2,7 +2,15 @@
 name = "rag-goa"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
+    "sarvamai",
+    "ollama",
+    "pyarrow",
+    "requests",
+]
 
 [tool.vercel]
 entrypoint = "backend.api.app:app"
