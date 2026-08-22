@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import "./styles.css";
 
-const API = "http://127.0.0.1:8000";
+const API = "https://rag-goa-black.vercel.app";
 
 const IDLE = "idle";
 const LISTENING = "listening";
