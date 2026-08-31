@@ -4,4 +4,5 @@ python-multipart
 sarvamai
 ollama
 pyarrow
-requestsgoogle-genai
+requests
+google-genai
