@@ -10,6 +10,7 @@ dependencies = [
     "ollama",
     "pyarrow",
     "requests",
+    "google-genai",
 ]
 
 [tool.vercel]
