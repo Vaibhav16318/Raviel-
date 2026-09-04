@@ -611,20 +611,34 @@ IMPORTANT:
         # --------------------------------------------------------
 
         websites = {
-            "gmail": "https://mail.google.com",
-            "google mail": "https://mail.google.com",
-            "youtube": "https://www.youtube.com",
-            "github": "https://github.com",
-            "chatgpt": "https://chatgpt.com",
-            "linkedin web": "https://www.linkedin.com",
-            "linkedin website": "https://www.linkedin.com",
-            "whatsapp web": "https://web.whatsapp.com",
-            "google": "https://www.google.com",
-            "google search": "https://www.google.com",
-            "facebook": "https://www.facebook.com",
-            "instagram": "https://www.instagram.com",
-            "twitter": "https://x.com",
-            "x": "https://x.com",
+             "gmail": "https://mail.google.com",
+             "google mail": "https://mail.google.com",
+
+             "youtube": "https://www.youtube.com",
+
+             "github": "https://github.com",
+
+             "chatgpt": "https://chatgpt.com",
+
+             "linkedin": "https://www.linkedin.com",
+             "linkedin web": "https://www.linkedin.com",
+             "linkedin website": "https://www.linkedin.com",
+
+             "whatsapp": "https://web.whatsapp.com",
+             "whatsapp web": "https://web.whatsapp.com",
+
+             "notion": "https://www.notion.so",
+             "notion web": "https://www.notion.so",
+
+             "google": "https://www.google.com",
+             "google search": "https://www.google.com",
+
+             "facebook": "https://www.facebook.com",
+
+             "instagram": "https://www.instagram.com",
+
+             "twitter": "https://x.com",
+             "x": "https://x.com",
         }
 
         # Exact website aliases first.
