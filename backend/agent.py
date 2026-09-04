@@ -20,9 +20,13 @@ class RAVIELAgent:
     - time/date
     - weather
     - document/RAG questions
-    - general local AI
+    - general AI
 
-    Designed for Windows + Ollama.
+    Important deployment behavior:
+    - When running locally on Windows, application and website commands
+      can launch on the local machine.
+    - When running on a cloud platform such as Vercel, the server cannot
+      open applications or browser tabs on the user's computer.
     """
 
     def __init__(
@@ -33,13 +37,19 @@ class RAVIELAgent:
         self.rag_service = rag_service
         self.model = model
 
-        # Keep the Ollama model permanently warm.
-        # This avoids repeated model loading between requests.
         self.keep_alive = -1
 
-        # Cache Windows Start Apps so every "open ..."
-        # command does not have to start PowerShell again.
-        self.windows_apps = self._load_windows_apps()
+        # Detect whether RAVIEL is running on Vercel.
+        self.is_cloud = bool(
+            os.environ.get("VERCEL")
+            or os.environ.get("VERCEL_ENV")
+        )
+
+        # Only load Windows applications when actually running locally.
+        if os.name == "nt" and not self.is_cloud:
+            self.windows_apps = self._load_windows_apps()
+        else:
+            self.windows_apps = []
 
     # ============================================================
     # MAIN ENTRY POINT
@@ -57,10 +67,7 @@ class RAVIELAgent:
             Optimizes general AI responses for spoken interaction.
 
         voice_mode=False:
-            Normal desktop/text behavior.
-
-        Explicit requests for detailed answers override the
-        short-answer voice optimization.
+            Normal text behavior.
         """
 
         query = query.strip()
@@ -176,10 +183,7 @@ class RAVIELAgent:
                         return answer.strip()
 
             except Exception as exc:
-                print(f"RAG error: {exc}")
-
-            # If document answering fails, continue to
-            # general AI rather than making RAVIEL appear broken.
+                print(f"RAVIEL RAG error: {exc}")
 
         # --------------------------------------------------------
         # GENERAL AI
@@ -197,19 +201,17 @@ class RAVIELAgent:
     @staticmethod
     def _normalize(text: str) -> str:
         """
-        Normalize speech-transcribed commands.
+        Normalize commands and speech-transcribed input.
         """
 
         text = text.lower().strip()
 
-        # Remove common punctuation from the end.
         text = re.sub(
             r"[?!.,]+$",
             "",
             text,
         )
 
-        # Collapse repeated whitespace.
         text = re.sub(
             r"\s+",
             " ",
@@ -252,23 +254,18 @@ class RAVIELAgent:
         return query.startswith(prefixes)
 
     # ============================================================
-    # GENERAL AI
+    # RESPONSE LENGTH
     # ============================================================
 
     @staticmethod
     def _wants_detailed_answer(query: str) -> bool:
         """
-        Detect whether the user explicitly asks for a detailed
-        or long-form answer.
-
-        This allows voice mode to remain fast for normal questions
-        while still supporting long answers when requested.
+        Detect explicit requests for a detailed explanation.
         """
 
         text = query.lower().strip()
 
         detail_phrases = (
-            # English
             "explain in detail",
             "explain this in detail",
             "explain thoroughly",
@@ -291,8 +288,6 @@ class RAVIELAgent:
             "elaborate",
             "go into detail",
             "explain everything",
-
-            # Hindi
             "विस्तार से बताओ",
             "विस्तार से समझाओ",
             "पूरी जानकारी दो",
@@ -308,145 +303,231 @@ class RAVIELAgent:
             for phrase in detail_phrases
         )
 
+    # ============================================================
+    # GENERAL AI
+    # ============================================================
+
     def _general_ai(
         self,
         query: str,
         voice_mode: bool = False,
     ) -> str:
         """
-        General-purpose local AI.
-
-        Voice mode:
-            Optimized for low latency and natural spoken answers.
-
-        Text mode:
-            Allows more detailed responses.
-
-        Explicit requests for detail override the short-answer
-        voice optimization.
+        Generate a general AI response using Gemini.
         """
 
         wants_detail = self._wants_detailed_answer(query)
 
         # --------------------------------------------------------
-        # Decide response length.
+        # Response policy
         # --------------------------------------------------------
 
         if voice_mode and not wants_detail:
             response_instruction = """
 - This is a voice conversation.
-- Give the direct answer immediately.
-- Normally answer in 1–3 short spoken sentences.
-- Prefer roughly 20–50 words.
-- Do not add unnecessary background.
-- Do not repeat the question.
-- Avoid filler.
+- Answer naturally and directly.
+- Normally use 2 to 4 short sentences.
+- Prefer approximately 30 to 80 words.
+- Do not repeat the user's question.
+- Do not add unnecessary filler.
 """
-            max_tokens = 64
+
+            max_tokens = 128
 
         elif wants_detail:
             response_instruction = """
 - The user explicitly wants a detailed explanation.
 - Give a complete and useful answer.
-- You may use multiple paragraphs or bullet points when helpful.
-- Explain the important reasoning and details.
-- Do not artificially shorten the answer.
+- Use multiple paragraphs or bullet points when helpful.
+- Explain the important concepts clearly.
+- Do not artificially shorten the response.
 """
-            max_tokens = 180
+
+            max_tokens = 512
 
         else:
             response_instruction = """
-- Give a useful direct answer.
-- Use as much detail as the question requires.
-- Do not unnecessarily repeat information.
-- If the user asks for a detailed explanation, provide one.
+- Give a useful and complete answer.
+- Answer the user's actual question directly.
+- Use enough explanation to make the answer useful.
+- Do not artificially shorten your response.
+- Normally provide at least one complete explanation rather than
+  only a fragment or partial sentence.
 """
-            max_tokens = 160
+
+            max_tokens = 384
 
         # --------------------------------------------------------
         # System prompt
         # --------------------------------------------------------
 
         system_prompt = f"""
-You are RAVIEL, a fast local desktop AI assistant.
+You are RAVIEL, an intelligent AI assistant.
 
 You are speaking with the user naturally.
 
 LANGUAGE:
 - Respond in the same language as the user.
-- English → English.
-- Hindi → Hindi.
-- Hinglish → natural Hinglish.
-- Bhojpuri → Bhojpuri when possible.
-- Haryanavi → Haryanavi when possible.
-- Do not translate the user's language into English unnecessarily.
-- Preserve the user's language throughout the answer.
-- If the user mixes Hindi and English, naturally mix Hindi and English.
+- English -> English.
+- Hindi -> Hindi.
+- Hinglish -> natural Hinglish.
+- Bhojpuri -> Bhojpuri when possible.
+- Haryanavi -> Haryanavi when possible.
+- Do not unnecessarily translate the user's language.
+- If the user mixes Hindi and English, naturally mix them.
 
 RESPONSE LENGTH:
 {response_instruction}
 
 STYLE:
-- Sound intelligent, friendly, natural and confident.
-- Speak naturally rather than like an encyclopedia.
-- Use simple language unless the user asks for technical detail.
+- Sound intelligent, natural, friendly, and confident.
+- Use simple language unless technical detail is requested.
 - Give the answer first.
-- Avoid filler such as:
-  "Sure!"
-  "Of course!"
-  "I'd be happy to help!"
-  unless it genuinely improves the conversation.
+- Avoid unnecessary filler.
+- Do not intentionally stop in the middle of a sentence.
+- Complete your answer before finishing.
 
 IMPORTANT:
-- Do not mention RAG, retrieval, context, embeddings, vector stores,
-  models, or internal implementation unless the user specifically asks.
-- Do not claim to have performed a computer action unless RAVIEL
-  actually performed it through a command handler.
 - Answer normal general-knowledge questions directly.
-- Do not invent facts when you are uncertain.
+- Do not invent facts when uncertain.
+- Do not mention internal implementation details unless asked.
+- Do not claim that you opened an application or controlled a
+  computer unless that action was actually performed locally.
 """
 
         try:
-            api_key = os.environ.get("GEMINI_API_KEY")
+            api_key = os.environ.get(
+                "GEMINI_API_KEY"
+            )
 
             if not api_key:
-                print("RAVIEL Gemini error: GEMINI_API_KEY is not configured.")
-                return "The AI service is not configured right now."
+                print(
+                    "RAVIEL Gemini error: "
+                    "GEMINI_API_KEY is not configured."
+                )
 
-            client = genai.Client(api_key=api_key)
+                return (
+                    "The AI service is not configured right now."
+                )
+
+            # Allow changing the model through an environment variable.
+            gemini_model = os.environ.get(
+                "GEMINI_MODEL",
+                "gemini-3.6-flash",
+            )
+
+            client = genai.Client(
+                api_key=api_key
+            )
 
             response = client.models.generate_content(
-                model="gemini-3.6-flash",
+                model=gemini_model,
                 contents=query,
                 config=genai.types.GenerateContentConfig(
-                     system_instruction=system_prompt,
-                     temperature=0.2,
-                     max_output_tokens=max_tokens,
+                    system_instruction=system_prompt,
+                    temperature=0.3,
+                    max_output_tokens=max_tokens,
                 ),
             )
 
-            print("\n========== GEMINI DEBUG ==========")
-            print("Full response:", response)
-            print("Response text:", response.text)
+            # ----------------------------------------------------
+            # Safely extract response text.
+            # ----------------------------------------------------
 
-            if response.candidates:
-               print(
-                   "Finish reason:",
-                    response.candidates[0].finish_reason
-                )
+            answer = ""
 
-            print("==================================\n")
+            try:
+                answer = (
+                    getattr(response, "text", "")
+                    or ""
+                ).strip()
 
-            answer = (response.text or "").strip()
+            except Exception:
+                answer = ""
+
+            # Fallback extraction from candidates.
+            if not answer:
+                try:
+                    candidates = getattr(
+                        response,
+                        "candidates",
+                        [],
+                    )
+
+                    if candidates:
+                        candidate = candidates[0]
+
+                        content = getattr(
+                            candidate,
+                            "content",
+                            None,
+                        )
+
+                        parts = getattr(
+                            content,
+                            "parts",
+                            [],
+                        )
+
+                        texts = []
+
+                        for part in parts:
+                            text = getattr(
+                                part,
+                                "text",
+                                None,
+                            )
+
+                            if text:
+                                texts.append(text)
+
+                        answer = "".join(
+                            texts
+                        ).strip()
+
+                except Exception as extraction_error:
+                    print(
+                        "RAVIEL response extraction error:",
+                        extraction_error,
+                    )
 
             if not answer:
-                return "I don't have an answer for that."
+                print(
+                    "RAVIEL Gemini returned an empty response."
+                )
+
+                return (
+                    "I couldn't generate a response for that right now."
+                )
 
             return answer
 
         except Exception as exc:
-            print(f"RAVIEL Gemini error: {exc}")
-            return "I couldn't process that request right now."
+            error_message = str(exc)
+
+            print(
+                f"RAVIEL Gemini error: "
+                f"{error_message}"
+            )
+
+            # ----------------------------------------------------
+            # Handle quota exhaustion clearly.
+            # ----------------------------------------------------
+
+            if (
+                "429" in error_message
+                or "RESOURCE_EXHAUSTED" in error_message
+                or "quota" in error_message.lower()
+            ):
+                return (
+                    "The AI service has temporarily reached its "
+                    "request limit. Please try again in a minute."
+                )
+
+            return (
+                "I couldn't process that request right now. "
+                "Please try again."
+            )
 
     # ============================================================
     # DOCUMENT ROUTING
@@ -457,9 +538,7 @@ IMPORTANT:
         query: str,
     ) -> bool:
         """
-        Only send explicitly document-related questions through RAG.
-
-        General questions stay on the fast local AI path.
+        Only explicitly document-related questions go through RAG.
         """
 
         document_terms = [
@@ -503,10 +582,10 @@ IMPORTANT:
     def _load_windows_apps(self):
         """
         Read installed Windows Start Menu applications.
-
-        Uses:
-            Get-StartApps
         """
+
+        if os.name != "nt":
+            return []
 
         try:
             command = [
@@ -539,6 +618,7 @@ IMPORTANT:
                     "Could not read Windows Start Apps:",
                     result.stderr,
                 )
+
                 return []
 
             raw = result.stdout.strip()
@@ -571,7 +651,8 @@ IMPORTANT:
                     )
 
             print(
-                f"RAVIEL loaded {len(apps)} Windows apps."
+                f"RAVIEL loaded "
+                f"{len(apps)} Windows apps."
             )
 
             return apps
@@ -584,7 +665,7 @@ IMPORTANT:
             return []
 
     # ============================================================
-    # OPEN APPLICATIONS
+    # OPEN APPLICATIONS / WEBSITES
     # ============================================================
 
     def _handle_open_command(
@@ -592,15 +673,11 @@ IMPORTANT:
         query: str,
     ) -> str:
         """
-        Open Windows applications dynamically.
-
-        RAVIEL first checks special websites/aliases,
-        then searches the real Windows Start Apps list.
+        Handle application and website opening commands.
         """
 
         target = self._normalize(query)
 
-        # Remove command words.
         target = re.sub(
             r"^(open|launch|start|run)\s+",
             "",
@@ -618,49 +695,53 @@ IMPORTANT:
         if not target:
             return "What would you like me to open?"
 
+        websites = {
+            "gmail": "https://mail.google.com",
+            "google mail": "https://mail.google.com",
+            "youtube": "https://www.youtube.com",
+            "github": "https://github.com",
+            "chatgpt": "https://chatgpt.com",
+            "linkedin": "https://www.linkedin.com",
+            "linkedin web": "https://www.linkedin.com",
+            "linkedin website": "https://www.linkedin.com",
+            "whatsapp": "https://web.whatsapp.com",
+            "whatsapp web": "https://web.whatsapp.com",
+            "notion": "https://www.notion.so",
+            "notion web": "https://www.notion.so",
+            "google": "https://www.google.com",
+            "google search": "https://www.google.com",
+            "facebook": "https://www.facebook.com",
+            "instagram": "https://www.instagram.com",
+            "twitter": "https://x.com",
+            "x": "https://x.com",
+        }
+
         # --------------------------------------------------------
         # Website aliases
         # --------------------------------------------------------
 
-        websites = {
-             "gmail": "https://mail.google.com",
-             "google mail": "https://mail.google.com",
-
-             "youtube": "https://www.youtube.com",
-
-             "github": "https://github.com",
-
-             "chatgpt": "https://chatgpt.com",
-
-             "linkedin": "https://www.linkedin.com",
-             "linkedin web": "https://www.linkedin.com",
-             "linkedin website": "https://www.linkedin.com",
-
-             "whatsapp": "https://web.whatsapp.com",
-             "whatsapp web": "https://web.whatsapp.com",
-
-             "notion": "https://www.notion.so",
-             "notion web": "https://www.notion.so",
-
-             "google": "https://www.google.com",
-             "google search": "https://www.google.com",
-
-             "facebook": "https://www.facebook.com",
-
-             "instagram": "https://www.instagram.com",
-
-             "twitter": "https://x.com",
-             "x": "https://x.com",
-        }
-
-        # Exact website aliases first.
         if target in websites:
+
+            # A cloud server cannot open a browser on the user's PC.
+            if self.is_cloud:
+                return (
+                    f"{target.title()} cannot be opened directly "
+                    f"on your computer from the deployed cloud version. "
+                    f"Run RAVIEL locally to launch it automatically."
+                )
+
             try:
-                webbrowser.open(
+                opened = webbrowser.open(
                     websites[target]
                 )
 
-                return f"Opening {target}."
+                if opened:
+                    return f"Opening {target}."
+
+                return (
+                    f"I tried to open {target}, "
+                    f"but the browser did not confirm the action."
+                )
 
             except Exception as exc:
                 print(
@@ -670,6 +751,17 @@ IMPORTANT:
                 return (
                     f"I couldn't open {target}."
                 )
+
+        # --------------------------------------------------------
+        # Cloud limitation
+        # --------------------------------------------------------
+
+        if self.is_cloud:
+            return (
+                f"I can't open {target} on your physical computer "
+                f"from the Vercel deployment. Application control "
+                f"requires RAVIEL to run locally on your Windows PC."
+            )
 
         # --------------------------------------------------------
         # Common application aliases
@@ -774,10 +866,6 @@ IMPORTANT:
             ],
         }
 
-        # --------------------------------------------------------
-        # Convert aliases into search terms.
-        # --------------------------------------------------------
-
         search_terms = [target]
 
         if target in aliases:
@@ -785,7 +873,6 @@ IMPORTANT:
                 aliases[target]
             )
 
-        # Also remove common words.
         simplified = re.sub(
             r"\b(app|application|program|browser)\b",
             "",
@@ -798,7 +885,7 @@ IMPORTANT:
             )
 
         # --------------------------------------------------------
-        # Exact / close Windows app matching
+        # Find installed Windows app
         # --------------------------------------------------------
 
         app = self._find_windows_app(
@@ -811,7 +898,7 @@ IMPORTANT:
             )
 
         # --------------------------------------------------------
-        # Special built-in Windows programs
+        # Built-in Windows programs
         # --------------------------------------------------------
 
         builtins = {
@@ -852,7 +939,7 @@ IMPORTANT:
                 )
 
         # --------------------------------------------------------
-        # If it looks like a website, open it.
+        # Direct URL
         # --------------------------------------------------------
 
         if (
@@ -860,18 +947,24 @@ IMPORTANT:
             or target.startswith("https://")
         ):
             try:
-                webbrowser.open(target)
+                opened = webbrowser.open(target)
 
-                return "Opening it."
+                if opened:
+                    return "Opening it."
 
-            except Exception:
+                return (
+                    "I tried to open the website, "
+                    "but the browser did not confirm the action."
+                )
+
+            except Exception as exc:
+                print(
+                    f"Direct website error: {exc}"
+                )
+
                 return (
                     "I couldn't open that website."
                 )
-
-        # --------------------------------------------------------
-        # Friendly fallback
-        # --------------------------------------------------------
 
         return (
             f"I couldn't find an installed app called "
@@ -887,13 +980,13 @@ IMPORTANT:
         search_terms,
     ):
         """
-        Find the best matching installed Windows app.
+        Find the best matching Windows application.
 
         Matching order:
-        1. exact
-        2. starts-with
-        3. contains
-        4. fuzzy similarity
+        1. Exact
+        2. Starts-with
+        3. Contains
+        4. Fuzzy similarity
         """
 
         if not self.windows_apps:
@@ -913,10 +1006,7 @@ IMPORTANT:
                 )
             )
 
-        # --------------------------------------------------------
         # Exact match
-        # --------------------------------------------------------
-
         for term in search_terms:
             term = self._normalize(term)
 
@@ -924,10 +1014,7 @@ IMPORTANT:
                 if name == term:
                     return app
 
-        # --------------------------------------------------------
         # Starts-with match
-        # --------------------------------------------------------
-
         for term in search_terms:
             term = self._normalize(term)
 
@@ -945,10 +1032,7 @@ IMPORTANT:
                     ),
                 )
 
-        # --------------------------------------------------------
         # Contains match
-        # --------------------------------------------------------
-
         for term in search_terms:
             term = self._normalize(term)
 
@@ -966,20 +1050,17 @@ IMPORTANT:
                     ),
                 )
 
-        # --------------------------------------------------------
         # Fuzzy match
-        # --------------------------------------------------------
+        names = [
+            name
+            for name, _ in normalized_apps
+        ]
 
         for term in search_terms:
             term = self._normalize(term)
 
             if len(term) < 3:
                 continue
-
-            names = [
-                name
-                for name, _ in normalized_apps
-            ]
 
             matches = difflib.get_close_matches(
                 term,
@@ -1009,11 +1090,16 @@ IMPORTANT:
         Launch a Windows Start App through its AppID.
         """
 
+        if os.name != "nt":
+            return (
+                "Windows application launching is only available "
+                "when RAVIEL is running locally on Windows."
+            )
+
         name = app["name"]
         app_id = app["app_id"]
 
         try:
-            # Windows AppsFolder launch mechanism.
             subprocess.Popen(
                 [
                     "explorer.exe",
@@ -1030,7 +1116,6 @@ IMPORTANT:
                 f"{name}: {exc}"
             )
 
-            # Try os.startfile as fallback.
             try:
                 os.startfile(
                     f"shell:AppsFolder\\{app_id}"
@@ -1058,9 +1143,7 @@ IMPORTANT:
         query: str,
     ) -> str:
         """
-        Safely closes selected applications.
-
-        This intentionally uses a whitelist.
+        Safely close selected applications.
         """
 
         target = self._normalize(query)
@@ -1079,17 +1162,22 @@ IMPORTANT:
 
         target = target.strip()
 
+        if self.is_cloud:
+            return (
+                f"I can't close {target} on your physical computer "
+                f"from the cloud deployment. Run RAVIEL locally "
+                f"for computer control."
+            )
+
         processes = {
             "notepad": [
                 "notepad.exe",
             ],
             "calculator": [
                 "CalculatorApp.exe",
-                "ApplicationFrameHost.exe",
             ],
             "calc": [
                 "CalculatorApp.exe",
-                "ApplicationFrameHost.exe",
             ],
             "paint": [
                 "mspaint.exe",
@@ -1136,16 +1224,12 @@ IMPORTANT:
             ],
         }
 
-        # Direct process mapping.
         if target in processes:
             for process in processes[target]:
-                self._kill_process(
-                    process
-                )
+                self._kill_process(process)
 
             return f"Closing {target}."
 
-        # Try matching installed app name.
         app = self._find_windows_app(
             [target]
         )
@@ -1199,12 +1283,6 @@ IMPORTANT:
     def _guess_process_name(
         app_name: str,
     ):
-        """
-        Best-effort mapping for common applications.
-
-        Closing arbitrary executables is intentionally avoided.
-        """
-
         mappings = {
             "google chrome": "chrome.exe",
             "brave": "brave.exe",
@@ -1229,8 +1307,6 @@ IMPORTANT:
     def _get_weather(self) -> str:
         """
         Lightweight weather lookup.
-
-        Uses wttr.in and requires no API key.
         """
 
         try:
@@ -1238,7 +1314,7 @@ IMPORTANT:
 
             response = requests.get(
                 "https://wttr.in/?format=3",
-                timeout=3,
+                timeout=5,
             )
 
             if response.ok:
