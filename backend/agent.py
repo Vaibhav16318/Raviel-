@@ -419,11 +419,23 @@ IMPORTANT:
                 model="gemini-3.6-flash",
                 contents=query,
                 config=genai.types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=0.2,
-                    max_output_tokens=max_tokens,
+                     system_instruction=system_prompt,
+                     temperature=0.2,
+                     max_output_tokens=max_tokens,
                 ),
             )
+
+            print("\n========== GEMINI DEBUG ==========")
+            print("Full response:", response)
+            print("Response text:", response.text)
+
+            if response.candidates:
+               print(
+                   "Finish reason:",
+                    response.candidates[0].finish_reason
+                )
+
+            print("==================================\n")
 
             answer = (response.text or "").strip()
 
