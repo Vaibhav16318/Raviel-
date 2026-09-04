@@ -31,3 +31,4 @@ Thumbs.db
 # Audio / temporary files
 *.wav
 *.mp3
+.vercel
